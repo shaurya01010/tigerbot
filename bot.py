@@ -1,24 +1,7 @@
-# ============================================================
-# TIGER MOD TELEGRAM BOT
-# Firebase + Razorpay + Premium Keys + Admin Panel
-# Prediction logic based on the uploaded TIGER MOD HTML
-# ============================================================
-#
-# IMPORTANT:
-# Set these environment variables before running:
-#
-# BOT_TOKEN=YOUR_NEW_TELEGRAM_BOT_TOKEN
-# RAZORPAY_KEY_ID=YOUR_RAZORPAY_KEY_ID
-# RAZORPAY_KEY_SECRET=YOUR_RAZORPAY_KEY_SECRET
-# RAZORPAY_WEBHOOK_SECRET=YOUR_RAZORPAY_WEBHOOK_SECRET
-#
-# Firebase service-account JSON:
-# tiger-da863-firebase-adminsdk-fbsvc-e0938355b9.json
-#
-# ============================================================
-
 import os
 import html
+import json
+import base64
 import secrets
 import string
 import hashlib
@@ -60,7 +43,10 @@ load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 
+# Firebase can be supplied securely on Render as base64-encoded JSON.
+# Local development can still use the original JSON file.
 FIREBASE_JSON = "tiger-da863-firebase-adminsdk-fbsvc-e0938355b9.json"
+FIREBASE_CREDENTIALS_B64 = os.getenv("FIREBASE_CREDENTIALS_B64", "").strip()
 
 RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "")
 RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "")
@@ -69,12 +55,14 @@ RAZORPAY_WEBHOOK_SECRET = os.getenv("RAZORPAY_WEBHOOK_SECRET", "")
 ADMIN_USERNAME = "tiger_key"
 
 WEBHOOK_HOST = os.getenv("WEBHOOK_HOST", "0.0.0.0")
-WEBHOOK_PORT = int(os.getenv("WEBHOOK_PORT", "8080"))
+# Render provides PORT. Keep 8080 as the local fallback.
+WEBHOOK_PORT = int(os.getenv("PORT", os.getenv("WEBHOOK_PORT", "8080")))
 
-# Change this to your public HTTPS webhook URL.
-RAZORPAY_WEBHOOK_URL = os.getenv(
-    "RAZORPAY_WEBHOOK_URL",
-    ""
+# Public URL used for the Razorpay checkout page. On Render,
+# RENDER_EXTERNAL_URL is used automatically after deployment.
+PAYMENT_SERVER_URL = (
+    os.getenv("PAYMENT_SERVER_URL", "").strip().rstrip("/")
+    or os.getenv("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
 )
 
 ONLINE_TIMEOUT_MINUTES = 5
@@ -98,12 +86,24 @@ logger = logging.getLogger("TIGER_MOD")
 
 if not firebase_admin._apps:
 
-    if not os.path.exists(FIREBASE_JSON):
+    if FIREBASE_CREDENTIALS_B64:
+        try:
+            firebase_info = json.loads(
+                base64.b64decode(FIREBASE_CREDENTIALS_B64).decode("utf-8")
+            )
+            cred = credentials.Certificate(firebase_info)
+        except Exception as exc:
+            raise RuntimeError(
+                "FIREBASE_CREDENTIALS_B64 is invalid."
+            ) from exc
+    elif os.path.exists(FIREBASE_JSON):
+        # Local development fallback. This file should NOT be committed to GitHub.
+        cred = credentials.Certificate(FIREBASE_JSON)
+    else:
         raise FileNotFoundError(
-            f"Firebase JSON not found: {FIREBASE_JSON}"
+            "Firebase credentials are missing. Set FIREBASE_CREDENTIALS_B64 "
+            "on Render or place the Firebase JSON file locally."
         )
-
-    cred = credentials.Certificate(FIREBASE_JSON)
 
     firebase_admin.initialize_app(cred)
 
@@ -958,18 +958,17 @@ async def create_payment_order(
     #
     # The payment server below creates a checkout page.
     #
-    if not RAZORPAY_WEBHOOK_URL:
+    if not PAYMENT_SERVER_URL:
 
         await query.edit_message_text(
             "⚠️ Payment page is not configured.\n\n"
-            "Admin must set RAZORPAY_WEBHOOK_URL."
+            "Set PAYMENT_SERVER_URL in Render after deployment."
         )
 
         return
 
     payment_url = (
-        f"{RAZORPAY_WEBHOOK_URL.rstrip('/')}"
-        f"/pay/{order_id}"
+        f"{PAYMENT_SERVER_URL}/pay/{order_id}"
     )
 
     await query.edit_message_text(
@@ -2619,10 +2618,11 @@ def main():
             "BOT_TOKEN environment variable is missing."
         )
 
-    if not os.path.exists(FIREBASE_JSON):
+    if not FIREBASE_CREDENTIALS_B64 and not os.path.exists(FIREBASE_JSON):
 
         raise RuntimeError(
-            f"Firebase file missing: {FIREBASE_JSON}"
+            "Firebase credentials are missing. Set FIREBASE_CREDENTIALS_B64 "
+            "on Render or keep the Firebase JSON file for local development."
         )
 
     if not RAZORPAY_KEY_ID:
@@ -2709,6 +2709,10 @@ def main():
         "Payment server: %s:%s",
         WEBHOOK_HOST,
         WEBHOOK_PORT,
+    )
+    logger.info(
+        "Payment public URL: %s",
+        PAYMENT_SERVER_URL or "not configured yet",
     )
 
     application.run_polling(
