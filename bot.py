@@ -45,7 +45,7 @@ load_dotenv()
 
 BOT_TOKEN = os.getenv("8632012259:AAF41udSmw4V70UR1JxT52VrxDGq6OsmCuk", "")
 
-FIREBASE_JSON = "tiger-da863-firebase-adminsdk-fbsvc-e0938355b9.json"
+firebase_b64 = os.getenv("FIREBASE_CREDENTIALS_B64")
 
 RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "")
 RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "")
@@ -80,16 +80,25 @@ logger = logging.getLogger("TIGER_MOD")
 # ============================================================
 # FIREBASE
 # ============================================================
+if firebase_b64:
+    firebase_json = base64.b64decode(firebase_b64).decode("utf-8")
+    firebase_info = json.loads(firebase_json)
+    cred = credentials.Certificate(firebase_info)
+else:
+    firebase_json = os.getenv(
+        "FIREBASE_JSON",
+        "tiger-da863-firebase-adminsdk-fbsvc-e0938355b9.json"
+    )
 
-if not firebase_admin._apps:
-
-    if not os.path.exists(FIREBASE_JSON):
+if not os.path.exists(firebase_json):
         raise FileNotFoundError(
-            f"Firebase JSON not found: {FIREBASE_JSON}"
+            "Firebase credentials not configured. "
+            "Set FIREBASE_CREDENTIALS_B64 in Render."
         )
 
-    cred = credentials.Certificate(FIREBASE_JSON)
+    cred = credentials.Certificate(firebase_json)
 
+if not firebase_admin._apps:
     firebase_admin.initialize_app(cred)
 
 
