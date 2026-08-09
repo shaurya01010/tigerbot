@@ -1,0 +1,5 @@
+python-telegram-bot>=22.0
+firebase-admin>=6.5.0
+razorpay>=2.0.0
+Flask>=3.0.0
+gunicorn>=22.0.0
