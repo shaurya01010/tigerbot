@@ -43,7 +43,7 @@ load_dotenv()
 # CONFIG
 # ============================================================
 
-BOT_TOKEN = os.getenv("8632012259:AAF41udSmw4V70UR1JxT52VrxDGq6OsmCuk", "")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 
 firebase_b64 = os.getenv("FIREBASE_CREDENTIALS_B64")
 
