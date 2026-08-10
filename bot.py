@@ -2773,33 +2773,26 @@ async def universal_message_handler(
 # ============================================================
 
 def main():
-
     global CURRENT_APPLICATION
 
-    if not BOT_TOKEN:
+    bot_token = os.getenv("BOT_TOKEN", "").strip()
 
+    logger.info(
+        "BOT_TOKEN configured: %s | length: %d",
+        bool(bot_token),
+        len(bot_token),
+    )
+
+    if not bot_token:
         raise RuntimeError(
             "BOT_TOKEN environment variable is missing."
         )
 
-    if not os.path.exists(FIREBASE_JSON):
-
-        raise RuntimeError(
-            f"Firebase file missing: {FIREBASE_JSON}"
-        )
-
-    if not RAZORPAY_KEY_ID:
-
-        logger.warning(
-            "RAZORPAY_KEY_ID is not configured."
-        )
-
-    if not RAZORPAY_KEY_SECRET:
-
-        logger.warning(
-            "RAZORPAY_KEY_SECRET is not configured."
-        )
-
+    application = (
+        Application.builder()
+        .token(bot_token)
+        .build()
+    )
     # --------------------------------------------------------
     # Start Flask
     # --------------------------------------------------------
