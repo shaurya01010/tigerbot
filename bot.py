@@ -2812,7 +2812,7 @@ def main():
 
     application = (
         Application.builder()
-        .token(BOT_TOKEN)
+        .token(bot_token)
         .build()
     )
 
