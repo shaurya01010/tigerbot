@@ -80,9 +80,9 @@ logger = logging.getLogger("TIGER_MOD")
 # ============================================================
 # FIREBASE
 # ============================================================
-if not firebase_admin._apps:
-    firebase_b64 = os.getenv("FIREBASE_CREDENTIALS_B64", "").strip()
+firebase_b64 = os.getenv("FIREBASE_CREDENTIALS_B64", "").strip()
 
+if not firebase_admin._apps:
     if firebase_b64:
         import base64
         import json
@@ -91,13 +91,18 @@ if not firebase_admin._apps:
         firebase_info = json.loads(firebase_json_data)
         cred = credentials.Certificate(firebase_info)
     else:
-        if not os.path.exists(FIREBASE_JSON):
+        firebase_json = os.getenv(
+            "FIREBASE_JSON",
+            "tiger-da863-firebase-adminsdk-fbsvc-e0938355b9.json"
+        )
+
+        if not os.path.exists(firebase_json):
             raise FileNotFoundError(
                 "Firebase credentials not configured. "
                 "Set FIREBASE_CREDENTIALS_B64 in Render."
             )
 
-        cred = credentials.Certificate(FIREBASE_JSON)
+        cred = credentials.Certificate(firebase_json)
 
     firebase_admin.initialize_app(cred)
 
