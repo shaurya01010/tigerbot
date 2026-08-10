@@ -554,7 +554,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🔐 <b>Premium Access Required</b>\n\n"
         "You don't currently have an active key.\n\n"
         "Choose <b>Enter Key</b> if you already have "
-        "a key or <b>Buy Key</b> to purchase access."
+        "a key or <b>Buy Key</b> to purchase access.\n\n"
+        "Support @Tiger_Key"
     )
 
     await update.message.reply_text(
