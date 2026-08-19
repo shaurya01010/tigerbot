@@ -16,23 +16,66 @@ def health():
 def zapupi_webhook():
     from services.zapupi import handle_webhook
     data = request.get_json(silent=True) or {}
-    handle_webhook(data)
+    try:
+        handle_webhook(data)
+    except Exception as exc:
+        print(f"[ZapUPI Webhook Error] {type(exc).__name__}: {exc}")
     return jsonify({"status": "ok"}), 200
 
-async def run_bot():
-    application = Application.builder().token(TOKEN).build()
+def build_application():
+    application = (
+        Application.builder()
+        .token(TOKEN)
+        .connect_timeout(30)
+        .read_timeout(60)
+        .write_timeout(60)
+        .pool_timeout(60)
+        .build()
+    )
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("admin", admin_command))
     application.add_handler(CallbackQueryHandler(callbacks))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_message))
-    await application.initialize()
-    await application.start()
-    await application.updater.start_polling(drop_pending_updates=True)
-    await asyncio.Event().wait()
+    return application
+
+async def run_bot():
+    if not TOKEN:
+        print("[Telegram] BOT_TOKEN is not set.")
+        return
+
+    while True:
+        application = build_application()
+        try:
+            print("[Telegram] Initializing...")
+            await application.initialize()
+            print("[Telegram] Starting application...")
+            await application.start()
+            print("[Telegram] Starting polling...")
+            await application.updater.start_polling(drop_pending_updates=True)
+            print("[Telegram] Bot is running successfully!")
+            await asyncio.Event().wait()
+        except Exception as exc:
+            print(f"[Telegram] Connection error: {type(exc).__name__}: {exc}")
+            print("[Telegram] Retrying in 15 seconds...")
+            try:
+                if application.updater and application.updater.running:
+                    await application.updater.stop()
+            except Exception:
+                pass
+            try:
+                if application.running:
+                    await application.stop()
+            except Exception:
+                pass
+            try:
+                await application.shutdown()
+            except Exception:
+                pass
+            await asyncio.sleep(15)
 
 def start_bot_thread():
     if not TOKEN:
-        print("BOT_TOKEN is not set; bot polling will not start.")
+        print("[Telegram] BOT_TOKEN is not set; bot polling will not start.")
         return
     def runner():
         asyncio.run(run_bot())
