@@ -1,12 +1,11 @@
-
-import os, threading, asyncio
+import os
+import threading
+import asyncio
 from flask import Flask, request, jsonify
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 from handlers.bot_handlers import start, callbacks, text_message, admin_command
 
-TOKEN = os.getenv("BOT_TOKEN", "")
-WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "change-me")
-
+TOKEN = os.getenv("BOT_TOKEN", "").strip()
 app = Flask(__name__)
 
 @app.get("/")
@@ -21,14 +20,14 @@ def zapupi_webhook():
     return jsonify({"status": "ok"}), 200
 
 async def run_bot():
-    bot = Application.builder().token(TOKEN).build()
-    bot.add_handler(CommandHandler("start", start))
-    bot.add_handler(CommandHandler("admin", admin_command))
-    bot.add_handler(CallbackQueryHandler(callbacks))
-    bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_message))
-    await bot.initialize()
-    await bot.start()
-    await bot.updater.start_polling()
+    application = Application.builder().token(TOKEN).build()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("admin", admin_command))
+    application.add_handler(CallbackQueryHandler(callbacks))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_message))
+    await application.initialize()
+    await application.start()
+    await application.updater.start_polling(drop_pending_updates=True)
     await asyncio.Event().wait()
 
 def start_bot_thread():
@@ -37,7 +36,7 @@ def start_bot_thread():
         return
     def runner():
         asyncio.run(run_bot())
-    threading.Thread(target=runner, daemon=True).start()
+    threading.Thread(target=runner, daemon=True, name="telegram-bot").start()
 
 start_bot_thread()
 

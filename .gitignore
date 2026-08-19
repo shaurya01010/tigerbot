@@ -1,9 +1,4 @@
 .env
-*.env
-venv/
-.venv/
+*.db
 __pycache__/
 *.pyc
-*.json
-.env
-*.db

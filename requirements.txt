@@ -1,7 +1,5 @@
-python-telegram-bot
-firebase-admin
-Flask
-razorpay
-requests
-gunicorn
-python-dotenv
+python-telegram-bot>=22.0
+Flask>=3.0
+gunicorn>=22.0
+requests>=2.31
+qrcode[pil]>=7.4
