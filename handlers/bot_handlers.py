@@ -163,7 +163,7 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         days = int(q.data.split("_")[1])
         amount = PRICE[days]
         # Alphanumeric + timestamp/uuid: unique and friendly to gateway rules.
-        order_id = f"TGR{uid}{int(time.time())}{uuid.uuid4().hex[:6].upper()}"
+        order_id = f"TGR{int(time.time() * 1000)}{uuid.uuid4().hex[:8].upper()}"
         save_order(order_id, uid, days, amount)
         try:
             data = create_order(order_id, amount, f"Tiger Mod | Plan {days} Days | User {uid}")
@@ -187,17 +187,26 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         except Exception as exc:
             print("ZapUPI create-order error:", repr(exc))
+            error_text = str(exc)
+            print(f"[ZapUPI] create-order failed for {order_id}: {error_text}")
             await q.message.reply_text(
                 msg(
-                    "❌ <b>Payment Order Could Not Be Created</b>\n\n"
-                    "The payment gateway did not accept the order. Your access has not been charged.\n\n"
-                    f"🧾 <b>Order:</b> <code>{order_id}</code>\n"
-                    "Please try again. If the issue continues, contact support."
+                    "⚠️ <b>PAYMENT SERVICE UNAVAILABLE</b>\n\n"
+                    "We could not create your payment order right now. <b>No money has been charged.</b>\n\n"
+                    f"🧾 <b>Order ID:</b> <code>{order_id}</code>\n"
+                    f"📦 <b>Plan:</b> {days} Days\n"
+                    f"💰 <b>Amount:</b> {money(amount)}\n\n"
+                    "🔄 <b>What you can do</b>\n"
+                    "• Try creating the order again\n"
+                    "• Check your internet connection\n"
+                    "• If the problem continues, contact support\n\n"
+                    "🔒 Your access remains unchanged until payment is successfully verified."
                 ),
                 parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🛒  TRY AGAIN", callback_data="buy")],
-                    [InlineKeyboardButton("🛟  SUPPORT", url="https://t.me/Tiger_Key")],
+                    [InlineKeyboardButton("🔄  TRY AGAIN", callback_data="buy")],
+                    [InlineKeyboardButton("🏠  MAIN MENU", callback_data="cancel")],
+                    [InlineKeyboardButton("🛟  CONTACT SUPPORT", url="https://t.me/Tiger_Key")],
                 ]),
             )
         return

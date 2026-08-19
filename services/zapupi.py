@@ -1,75 +1,96 @@
 import os
+import time
 import requests
 from datetime import datetime, timezone
 from database import update_order, get_order, issue_order_key
 
 BASE = "https://pay.zapupi.com/api"
-ZAP_KEY = os.getenv("ZAPUPI_KEY", "").strip()
 
 
-def _json_response(response):
-    try:
-        data = response.json()
-    except ValueError:
-        raise RuntimeError(f"ZapUPI returned HTTP {response.status_code} with a non-JSON response")
-    return data
+def _zap_key():
+    return os.getenv("ZAPUPI_KEY", "").strip()
+
+
+def _post(endpoint, payload, timeout=25):
+    key = _zap_key()
+    if not key:
+        raise RuntimeError("Payment gateway is not configured. Add ZAPUPI_KEY in Render Environment Variables.")
+
+    safe_payload = dict(payload)
+    safe_payload["zap_key"] = "***"
+    print(f"[ZapUPI] POST {endpoint} payload={safe_payload}")
+
+    last_error = None
+    for attempt in range(1, 3):
+        try:
+            response = requests.post(
+                f"{BASE}/{endpoint}",
+                json=payload,
+                headers={"Content-Type": "application/json", "Accept": "application/json"},
+                timeout=timeout,
+            )
+            try:
+                data = response.json()
+            except ValueError:
+                raise RuntimeError(
+                    f"ZapUPI returned an invalid response (HTTP {response.status_code})."
+                )
+
+            print(f"[ZapUPI] HTTP {response.status_code} response={data}")
+
+            if response.status_code >= 400 or str(data.get("status", "")).lower() != "success":
+                message = str(data.get("message") or data.get("error") or "Unknown gateway error")
+                raise RuntimeError(f"{message} (HTTP {response.status_code})")
+            return data
+        except requests.RequestException as exc:
+            last_error = exc
+            print(f"[ZapUPI] network error attempt {attempt}: {type(exc).__name__}: {exc}")
+            if attempt < 2:
+                time.sleep(1.5)
+        except RuntimeError:
+            raise
+
+    raise RuntimeError("Payment gateway is temporarily unreachable. Please try again in a moment.") from last_error
 
 
 def create_order(order_id, amount, remark=""):
-    if not ZAP_KEY:
-        raise RuntimeError("ZAPUPI_KEY is missing in Render Environment Variables")
+    order_id = str(order_id).strip()
+    if not order_id or len(order_id) > 60 or not order_id.isalnum():
+        raise RuntimeError("Invalid payment order ID. Please try again.")
+
+    try:
+        amount_value = float(amount)
+    except (TypeError, ValueError):
+        raise RuntimeError("Invalid payment amount.")
+    if amount_value <= 0:
+        raise RuntimeError("Payment amount must be greater than zero.")
 
     payload = {
-        "zap_key": ZAP_KEY,
-        "order_id": str(order_id),
-        "amount": float(amount),
+        "zap_key": _zap_key(),
+        "order_id": order_id,
+        # ZapUPI documents amount as INR number/float. Keep two decimals only when needed.
+        "amount": amount_value,
     }
     if remark:
-        payload["remark"] = remark
+        payload["remark"] = str(remark)[:500]
 
-    # ZapUPI supports a per-order webhook override. If configured, use it;
-    # otherwise the dashboard webhook is used.
     webhook = os.getenv("ZAPUPI_WEBHOOK_URL", "").strip()
     if webhook:
         payload["webhook_url"] = webhook
 
-    response = requests.post(
-        f"{BASE}/create-order",
-        json=payload,
-        headers={"Content-Type": "application/json"},
-        timeout=20,
-    )
-    data = _json_response(response)
-
-    if response.status_code >= 400 or str(data.get("status", "")).lower() != "success":
-        message = data.get("message") or data.get("error") or f"HTTP {response.status_code}"
-        raise RuntimeError(f"ZapUPI: {message}")
-
+    data = _post("create-order", payload)
     payment_url = data.get("payment_url")
     if not payment_url:
-        raise RuntimeError("ZapUPI order was created but no payment URL was returned")
-
+        raise RuntimeError("ZapUPI created the order but did not return a payment URL.")
     return data
 
 
 def order_status(order_id):
-    if not ZAP_KEY:
-        raise RuntimeError("ZAPUPI_KEY is missing in Render Environment Variables")
-    response = requests.post(
-        f"{BASE}/order-status",
-        json={"zap_key": ZAP_KEY, "order_id": str(order_id)},
-        headers={"Content-Type": "application/json"},
-        timeout=20,
-    )
-    data = _json_response(response)
-    if response.status_code >= 400 or str(data.get("status", "")).lower() != "success":
-        message = data.get("message") or f"HTTP {response.status_code}"
-        raise RuntimeError(f"ZapUPI: {message}")
+    data = _post("order-status", {"zap_key": _zap_key(), "order_id": str(order_id)}, timeout=20)
     return data
 
 
 def fulfill_success(order_id, txn_id="", utr=""):
-    """Confirm local order and issue one key. Safe to call from verify and webhook."""
     order = get_order(order_id)
     if not order:
         return None
@@ -88,47 +109,50 @@ def _notify_key(order, key):
     bot_token = os.getenv("BOT_TOKEN", "").strip()
     if not bot_token or not key:
         return
+
     text = (
         "🐯 <b>TIGER MOD</b>\n\n"
-        "✅ <b>Payment Verified Successfully</b>\n\n"
+        "🎉 <b>ACCESS KEY READY</b>\n\n"
+        "Your payment has been verified successfully.\n\n"
         f"📦 <b>Plan:</b> {order['plan_days']} Days\n"
         f"💰 <b>Amount:</b> ₹{float(order['amount']):g}\n"
-        f"🔑 <b>Your Access Key:</b>\n<code>{key}</code>\n\n"
-        "Use <b>ENTER KEY</b> in the bot to activate your access.\n\n"
+        f"🔑 <b>Access Key:</b>\n<code>{key}</code>\n\n"
+        "🔐 Activate this key from the bot.\n"
+        "⚠️ This key can only be activated on one Telegram account.\n\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "🛟 Support: @Tiger_Key"
+        "🛟 <b>Support:</b> @Tiger_Key"
     )
     try:
-        requests.post(
+        response = requests.post(
             f"https://api.telegram.org/bot{bot_token}/sendMessage",
-            json={
-                "chat_id": order["telegram_id"],
-                "text": text,
-                "parse_mode": "HTML",
-            },
+            json={"chat_id": order["telegram_id"], "text": text, "parse_mode": "HTML"},
             timeout=15,
-        ).raise_for_status()
+        )
+        response.raise_for_status()
     except Exception as exc:
-        print("Telegram key delivery error:", exc)
+        print("[Telegram] key delivery error:", type(exc).__name__, exc)
 
 
 def handle_webhook(data):
-    order_id = data.get("order_id", "")
-    status = data.get("status", "")
+    data = data or {}
+    order_id = str(data.get("order_id", "")).strip()
+    status = str(data.get("status", "")).strip()
     if not order_id:
         return None
 
     order = get_order(order_id)
     if not order:
+        print(f"[ZapUPI] webhook ignored: unknown order {order_id}")
         return None
 
-    if status == "Success":
+    if status.lower() == "success":
         try:
             confirmed = order_status(order_id)
-            remote = confirmed.get("data", {})
-            if remote.get("status") != "Success":
+            remote = confirmed.get("data") or {}
+            if str(remote.get("status", "")).lower() != "success":
+                print(f"[ZapUPI] webhook received Success but status check was {remote.get('status')}")
                 return None
-            # If Verify already issued the key, do not send a duplicate key.
+
             already_issued = order.get("issued_key", "")
             key = fulfill_success(
                 order_id,
@@ -139,14 +163,9 @@ def handle_webhook(data):
                 _notify_key(order, key)
             return key
         except Exception as exc:
-            print("ZapUPI webhook confirmation error:", exc)
+            print("[ZapUPI] webhook confirmation error:", type(exc).__name__, exc)
             return None
 
-    if status == "Failed":
-        update_order(
-            order_id,
-            status="Failed",
-            txn_id=data.get("txn_id", ""),
-            utr=data.get("utr", ""),
-        )
+    if status.lower() == "failed":
+        update_order(order_id, status="Failed", txn_id=data.get("txn_id", ""), utr=data.get("utr", ""))
     return None
